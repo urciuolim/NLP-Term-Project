@@ -23,7 +23,7 @@ def func(token):
 		return name
 	return None
 
-def getName(token, verbose):
+def getName(token, verbose, tokenBefore):
     if token.pos == PROPN:
         ancestors = [t for t in token.ancestors]
         par = None
@@ -37,6 +37,10 @@ def getName(token, verbose):
             if gpar != None:
                 print("**********", gpar.text, gpar.pos_, gpar.right_edge.text, gpar.right_edge.pos_)
         if par.pos == PROPN:
+            if tokenBefore != None and token.text == ",":
+                if verbose: #
+                    print("FOUND THIS SPECIAL CASE", token.text)
+                return token.text
             if par.right_edge == token:
                 if verbose: #
                     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~GOT HERE")
@@ -72,7 +76,7 @@ def getName(token, verbose):
                     s = child.text
                     if child.pos == PROPN:
                         flag = True
-                        s = getName(child, verbose)
+                        s = getName(child, verbose, tokenBefore)
                     name += " " + s
         if flag:
             return name
