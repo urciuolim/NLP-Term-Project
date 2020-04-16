@@ -1,0 +1,55 @@
+from numpy import random
+
+def main():
+    stats = dict()
+    PARAM_NUM = 2
+    if len(sys.argv) < PARAM_NUM:
+        print("Need " + str(PARAM_NUM-len(sys.argv)) + " more args")
+        return
+    model = Model(sys.argv[1])
+    mean = model.stats["DOC_WORD_LEN_MEAN"]
+    stdev = model.stats["DOC_WORD_LEN_STDEV"]
+
+    for i in range(0, 100):
+        print(random.normal(mean, stdev))
+
+class Model:
+    EOF = "#EOF"
+    EMITS = "@EMITS"
+    def __init__(self, mfile):
+        self.stats = dict()
+        self.states = dict()
+
+        with open(mfile, 'r') as mod:
+            for line in mod.readlines():
+                line = line.split('\t')
+                if line[0] == "@STATS":
+                    line = next(line, EOF).split('\t')
+                    while line[0] == '':
+                        self.stats[line[1]] = float(line[2])
+                        line = next(line, EOF).split('\t')
+                if: line[0] == "@STATE":
+                    args = dict()
+                    pos = int(line[1])
+                    args["pos"] = pos
+                    line = next(line, EOF).split('\t')
+                    while line[0] == '' and line[1] != EMITS:
+                        args[line[1]] = line[2]
+                    self.states[pos] = State(args)
+                    if len(line) > 1 and line[1] == EMITS:
+                        line = next(line,EOF).split('\t')
+                        while line[0] == '' and line[1] == '':
+                            self.states[pos].addWord(line[2], line[3])
+                        
+class State:
+    def __init__(self, args):
+        self.pos = args["pos"]
+        self.pos_ = args["@POS"]
+        self.totalcount = args["@TOTAL_COUNT"]
+        self.words = dict()
+
+    def addWord(self, word, count):
+        self.words[word] = count
+    
+if __init__ == '__main__':
+    main()

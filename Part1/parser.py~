@@ -1,0 +1,13 @@
+import spacy
+from spacy.symbols import *
+import sys
+
+def main():
+    nlp = spacy.load("en_core_web_sm")
+    with open(sys.argv[1], 'r') as corpus:
+        print(corpus.readline())
+        print(corpus.readline())
+
+    
+if __name__ == '__main__':
+    main()
