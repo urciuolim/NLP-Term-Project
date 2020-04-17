@@ -69,13 +69,15 @@ class Model:
         sents = list(doc.sents)
         self.senLengthsOfDoc.append(len(sents))
         for sent in doc.sents:
+            if len(sent) <= 2:
+                continue
             self.wordLengthsOfSen.append(len(sent))
             self.parseRec(sent.root)
 
     def parseRec(self, node):
         left = ""
         right = ""
-        ancestor = "<start>"
+        ancestor = "<root>"
         ancestors = list(node.ancestors)
         if len(ancestors) > 0:
             ancestor = ancestors[0].tag_
@@ -85,13 +87,13 @@ class Model:
         self.states[pair].addWord(node)
         
         for child in node.lefts:
-            left = left + ":" + child.tag_
+            left = left + "|" + child.tag_
             self.parseRec(child)
         if len(left) > 0:
             left = left[1:]
 
         for child in node.rights:
-            right = right + ":" + child.tag_
+            right = right + "|" + child.tag_
             self.parseRec(child)
         if len(right) > 0:
             right = right[1:]
@@ -109,9 +111,7 @@ class State:
 
     def addWord(self, token):
         self.size += 1
-        word = token.lemma_
-        if word == "-PRON-":
-            word = token.text
+        word = token.text
         if word in self.wordcount:
             self.wordcount[word] += 1
         else:
