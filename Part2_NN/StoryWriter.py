@@ -18,16 +18,17 @@ from keras.layers import Input, LSTM, Dense
 MAX_SEQ_LEN = 0
 TEXT_DIM = 100
 POS_LIM = 60
-STEP = 100000
+STEP = 0
 
 def main():
     
-    PARAM_NUM = 3
+    PARAM_NUM = 5
     if len(sys.argv) < PARAM_NUM:
         print("Need " + str(PARAM_NUM-len(sys.argv)) + " more args")
-        print("<vectorized words> <bi-text>")
+        print("<vectorized words> <bi-text> <step> <model output>")
         return
 
+    STEP = int(sys.argv[3])
     Word2VecModel = Word2Vec.load(sys.argv[1])
     print("Word2Vec model loaded")
 
@@ -41,12 +42,19 @@ def main():
     Model = seq2seq_model_builder(400)
     
     text_array, step_pos = vectorize(text[:STEP], pos[:STEP], Word2VecModel)
-    print(text_array.shape)
     pos_array = pos_vectorize(step_pos, pos2num)
-    print(pos_array.shape)
 
-    
-    
+    encoder_input_data = pos_array
+    decoder_input_data = text_array[:,1:,:]
+    decoder_target_data = text_array[:,:-1,:]
+
+    Model.fit([encoder_input_data, decoder_input_data], decoder_target_data,
+              batch_size = 10,
+              epochs = 1,
+              workers=4,
+              validation_split=0.2)
+    Model.save(sys.argv[4])
+              
 
 def split(lines):
     global MAX_SEQ_LEN
@@ -132,7 +140,8 @@ def vectorize(text, pos, Word2VecModel):
         if flag:
             error += 1
             break
-        text_array.append(t_array)
+        
+        text_array.append(numpy.stack(t_array))
         step_pos.append(sen_pos)
 
     print("")
@@ -160,13 +169,13 @@ def pos_vectorize(pos, pos2num):
         for p in sen_pos:
             i += 1
             p_arr[i,:] = pos2num[p]
-        pos_array.append(p_arr)
+        pos_array.append(numpy.stack(p_arr))
 
     print("")
     print(str(count) + " total lines pos_vectorized")
     print(str(error) + " errors")
         
-    return numpy.stack(pos_array)
+    return pos_array
     
 def seq2seq_model_builder(hidden_dim):
     global pos2num
@@ -176,7 +185,7 @@ def seq2seq_model_builder(hidden_dim):
     encoder_outputs, state_h, state_c = encoder_lstm(encoder_inputs)
     encoder_states = [state_h, state_c]
 
-    decoder_inputs = Input(shape=(MAX_SEQ_LEN+2, TEXT_DIM), dtype="float32")
+    decoder_inputs = Input(shape=(MAX_SEQ_LEN+1, TEXT_DIM), dtype="float32")
     decoder_lstm = LSTM(hidden_dim, return_sequences=True, return_state=True)
     decoder_outputs, _, _ = decoder_lstm(decoder_inputs, initial_state=encoder_states)
     decoder_dense = Dense(TEXT_DIM, activation="softmax")
