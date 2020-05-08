@@ -1,0 +1,50 @@
+./Eval/story0_0.txt
+Was actually 2
+./Eval/story0_1.txt
+Was actually 1
+------------------------------------------------
+./Eval/story1_0.txt
+Was actually 1
+./Eval/story1_1.txt
+Was actually 2
+------------------------------------------------
+./Eval/story2_0.txt
+Was actually 1
+./Eval/story2_1.txt
+Was actually 2
+------------------------------------------------
+./Eval/story3_0.txt
+Was actually 1
+./Eval/story3_1.txt
+Was actually 2
+------------------------------------------------
+./Eval/story4_0.txt
+Was actually 2
+./Eval/story4_1.txt
+Was actually 1
+------------------------------------------------
+./Eval/story5_0.txt
+Was actually 1
+./Eval/story5_1.txt
+Was actually 2
+------------------------------------------------
+./Eval/story6_0.txt
+Was actually 2
+./Eval/story6_1.txt
+Was actually 1
+------------------------------------------------
+./Eval/story7_0.txt
+Was actually 1
+./Eval/story7_1.txt
+Was actually 2
+------------------------------------------------
+./Eval/story8_0.txt
+Was actually 1
+./Eval/story8_1.txt
+Was actually 2
+------------------------------------------------
+./Eval/story9_0.txt
+Was actually 1
+./Eval/story9_1.txt
+Was actually 2
+------------------------------------------------
