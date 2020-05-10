@@ -94,6 +94,7 @@ class Model:
         while True:
             count += 1
             try:
+                self.calc_nes_left_at_step(curr_line)
                 possibleStates = self.states[self.lastState].nextState
                 if endFlag and END in possibleStates:
                     return self.ne_emit_check(END)
@@ -144,7 +145,19 @@ class Model:
             nes_needed[self.typ2indx[typ]] += 1
 
         return numpy.linalg.norm(self.nes_left-nes_needed)
-            
+
+    def calc_nes_left_at_step(self, curr_line):
+        S,E = 2,3
+        self.nes_left = zeros((len(self.ne_by_typ)),dtype="int32")
+        self.typ2indx = dict()
+        for i,typ in enumerate(list(self.ne_by_typ.keys())):
+            self.typ2indx[typ] = i
+            for ne in self.ne_by_typ[typ]:
+                s_lim = floor(ne[S]*self.intd_length)
+                e_lim = ceil(ne[E]*self.intd_length)
+                if curr_line >= s_lim and curr_line <= e_lim:
+                    if ne[0] > 0:
+                        self.nes_left[self.typ2indx[typ]] += 1
 
     def calc_nes_left(self):
         self.nes_left = zeros((len(self.ne_by_typ)),dtype="int32")
