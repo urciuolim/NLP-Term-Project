@@ -50,27 +50,15 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
         text += line + " "
 
     nltk_ne = []
-    st_char = 0
-    end_char = 0
     for sent in nltk.sent_tokenize(text[:-1]):
         for chunk in ne_chunk(pos_tag(word_tokenize(sent))):
-            end_char = st_char
-            word = chunk[0]
             if hasattr(chunk, 'label'):
-                word = chunk[0][0]
-                end_char += len(word)
-                nltk_ne.append(('nltk', chunk.label(), (' '.join(c[0] for c in chunk)),
-                                (st_char, end_char-st_char)))
-            else:
-                end_char += len(word)
-            if ((word[0].isalpha() or word[0].isdigit()) and not word.lower() == "\'s"):
-                end_char += 1
-            st_char  = end_char
+                nltk_ne.append(('nltk', chunk.label(), (' '.join(c[0] for c in chunk))))
     
     doc = nlp(text[:-1])
     spacy_ne = []
     for ent in doc.ents:
-        spacy_ne.append(('spacy', ent.label_, ent.text, (ent.start_char, ent.end_char-ent.start_char)))
+        spacy_ne.append(('spacy', ent.label_, ent.text))
 
     nltk_ne = list(dict.fromkeys(nltk_ne))
     spacy_ne = list(dict.fromkeys(spacy_ne))
@@ -89,6 +77,12 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
         typ = nne[1]
         if typ == "ORGANIZATION":
             typ = "ORG"
+        elif typ == "FACILITY":
+            typ = "FAC"
+        elif typ == "GSP":
+            typ = "GPE"
+        elif typ == "LOCATION":
+            typ = "LOC"
         if -1 in n_match:
             NEs[nne[2]] = typ
         elif n_match:
@@ -100,24 +94,27 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
             parse_nums(sne, Nums)
             continue
         n_match = name_match(sne[2], NEs.keys())
+        typ = sne[1]
+        if typ == "WORK_OF_ART":
+            typ = "ART"
         if -1 in n_match:
-            NEs[sne[2]] = sne[1]
+            NEs[sne[2]] = typ
         elif n_match:
             if len(n_match) > 1:
                 for n in list(n_match):
                     reverse_n_match = name_match(n, [sne[2]])
                     if not -1 in reverse_n_match:
                         typ = NEs[n]
-                        NEs[sne[2]] = sne[1]
+                        NEs[sne[2]] = typ
                         for t in typ.split("_"):
                             NEs[sne[2]] += "_" + t
                         del NEs[n]
                         break
                 else:
-                    NEs[sne[2]] = sne[1]      
+                    NEs[sne[2]] = typ     
             else:
                 for n in n_match:
-                    NEs[n] += "_" + sne[1]
+                    NEs[n] += "_" + typ
                     
     final_list = []
     final_num_list = []
