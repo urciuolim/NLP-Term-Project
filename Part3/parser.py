@@ -60,7 +60,7 @@ def main():
             model.parse(sentence, masked, i, nlp)
             i += 1
         model.docLength.append(i)
-
+        
         if count % 600 == 0 and count > 1:
             print(".", end="", flush=True)
 
@@ -75,6 +75,7 @@ def main():
     
     print("Complete")
 
+# Print named entity stats gathered from corpus to be used by generator
 def printNEStats(bank_dir):
     global ne_stats
 
@@ -124,6 +125,7 @@ def printNEStats(bank_dir):
                         print("\t", typ_ne_arr[i][j], end="", file=sfile)
                     print("", file=sfile)
 
+# Remove punctuation from a word, as well as 's
 def remove_punc(word):
     c = 0
     while True:
@@ -135,20 +137,23 @@ def remove_punc(word):
             c += 1
     return word[0:c]
 
+# Given a word, call ner_getter.py name_match to see if a word
+# matches one of a given list of named entities
 def partial_name_lookup(word, NEs, nlp):
     name_list = [x[1] for x in NEs]
     n_match = name_match(word, name_list)
+    # If the name matches an entity in the list
     if not -1 in n_match and n_match:
-        if len(n_match) > 1:
-            print("THIS HAPPENED")
-            print(word)
-            print(NEs)
-        else:
-            n = n_match[0]
-            for ne in NEs:
-                if n == ne[1]:
-                    return ne + (word,)
+        n = n_match[0]
+        # Find that entity in the list, and return
+        for ne in NEs:
+            if n == ne[1]:
+                return ne + (word,)
+    # An empty list (with no -1s) means that the term ambiguously
+    # matches to multiple names
     elif not n_match:
+        # So pick the first name that this word occurs in perfectly,
+        # And match to that
         for ne in NEs:
             if word in ne[1]:
                 return ne + (word,)
@@ -156,6 +161,9 @@ def partial_name_lookup(word, NEs, nlp):
         return None
     token = [t for t in nlp(word)][0]
 
+    # If the word can be lemmatized, match that lemma against
+    # the named entities. Can be used to match plurals to
+    # the singular version of the recorded named entity
     if token.lemma_ != "-PRON-" and token.lemma_ != word:
         newword = token.lemma_
         if word[0].isupper():
@@ -163,35 +171,43 @@ def partial_name_lookup(word, NEs, nlp):
         return partial_name_lookup(newword, NEs, None)
     return None
 
+# Given a summary and the name base from the corpus, mask all named entities
 def mask(summary, name_base, nlp):
     MovieID = summary[0].split("\t")[1]
     masked_sents = [[]]
+    # Pass the summary through ner_getter.py to grab all (detectable) named entities
     NEs, Nums = get_all_NEs(MovieID, summary[1:-1], name_base, nlp)
 
     tmp = summary[1:-1]
     if type(tmp) != list:
         tmp = list(tmp)
 
+    # Keep track of which NEs are mentioned throughout the story, for stats purposes
     summaryTagMention = dict()
         
     i = 0
+    # For each sentence record which named entity occurs in this sentence (not double counting
+    # NEs repeated in the same sentence)
     for sent in tmp:
         i += 1
         tagCounter = dict()
         tagEnum = dict()
         tagMention = dict()
+        # For all known named entities, find matches
         for ne in NEs:
             if scrollingWindowSearch(ne[1], sent):
                 add_to_master_list(ne)
                 update_mention(ne, i, tagMention)
                 c = str(increCounter(ne, tagCounter, tagEnum))
                 sent = sent.replace(ne[1], "<" + ne[0] + c + ">")
+        # For all known cardinal/ordinal/date/time, which are treated seperately
         for num in Nums:
             if scrollingWindowSearch(num[1], sent):
                 add_to_master_list(num)
-                #update_mention(num, tagMention)
                 c = str(increCounter(num, tagCounter, tagEnum))
                 sent = sent.replace(num[1], "<" + num[0] + c + ">")
+        # Now check each word to see if it is a partial name that matches to a
+        # known NE
         for word in sent.split(" "):
             if "<" not in word and word != word.lower():
                 word = [t.text for t in nlp(word)][0]
@@ -203,6 +219,7 @@ def mask(summary, name_base, nlp):
                     sent = sent.replace(name_entry[2], "<" + name_entry[0] + c + ">")
         masked_sents.append(sent)
 
+        # For each found named entity, record it in the summary's record of NEs
         for typ in tagMention:
             if not typ in summaryTagMention:
                 summaryTagMention[typ] = dict()
@@ -213,10 +230,13 @@ def mask(summary, name_base, nlp):
                 summaryTagMention[typ][ne][LAST] = tagMention[typ][ne][LAST]
     masked_sents.append([])
 
+    # Update statisitcs based on what is found in this summary
     update_ne_stats(i, summaryTagMention)
     
     return masked_sents
 
+# Update relevant named entity stats based on the tags found,
+# categorized by document length
 def update_ne_stats(num_lines, tagMention):
     global ne_stats
     category = int(num_lines / 5)
@@ -239,6 +259,8 @@ def update_ne_stats(num_lines, tagMention):
             ne_stats[category][typ] = list()
         ne_stats[category][typ].append(normalized_mentions[typ])
 
+# Update the count and last seen of a named entity
+# will create an entry if first time seeing
 def update_mention(entry, lnum, tagMention):
     if not entry[0] in tagMention:
         tagMention[entry[0]] = dict()
@@ -248,12 +270,14 @@ def update_mention(entry, lnum, tagMention):
     tagMention[entry[0]][entry[1]][COUNT] += 1
     tagMention[entry[0]][entry[1]][LAST] = lnum
 
+# Add a name to the master list of names
 def add_to_master_list(ne):
     global master_list
     if not ne[0] in master_list:
         master_list[ne[0]] = set()
     master_list[ne[0]].add(ne[1])
 
+# Print master list of names to directory
 def printMasterNEList(bank_dir):
     global master_list
     if bank_dir[0] != "/":
@@ -263,6 +287,7 @@ def printMasterNEList(bank_dir):
             for ne in master_list[typ]:
                 print(ne, file=ofile)
 
+# Scrolling window search to see if a name is in a sentence
 def scrollingWindowSearch(name, sent):
     s = 0
     while s+len(name) <= len(sent):
@@ -278,6 +303,7 @@ def scrollingWindowSearch(name, sent):
         s+= 1
     return False
 
+# Increase the counter of a named entity
 def increCounter(entry, tagCounter, tagEnum):
     if not entry[1] in tagEnum:
         if not entry[0] in tagCounter:
@@ -285,7 +311,8 @@ def increCounter(entry, tagCounter, tagEnum):
         tagEnum[entry[1]] = tagCounter[entry[0]]
         tagCounter[entry[0]] += 1
     return tagEnum[entry[1]]
-    
+
+# Prints out a progress bar to console
 def progressBar(num):
     for _ in range(num):
         print("_", end="")

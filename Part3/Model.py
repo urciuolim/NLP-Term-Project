@@ -4,9 +4,9 @@ import numpy
 from numpy import zeros
 import os
 from ner_getter import name_match
-from queue import PriorityQueue
 import re
 from math import floor, ceil
+
 START = "@START"
 END = "~END"
 
@@ -57,22 +57,6 @@ def load_state(base_dir, vp):
                     state.nextState.append(tmp[1])
     return state
 
-def prob_est_func(prob, start, end, pos, max_length):
-    # first define p as 1, in case start == end, to avoid divide by 0 error
-    # also since prob (across whole doc) is > 0, at least one occurance needs
-    # to happen, so this is a forcing function for that
-    p = 1
-    if start != end:
-        p = prob/(end-start)
-    # Estimate probability of an emission based on mean/(avg_end-avg_start) between those two values
-    # and inverse exponential - 1 otherwise (drop off beyond the average start/end)
-    if pos < start:
-        return min(p, p*(float(1/pow((-pos+start),.1))-1))
-    elif pos >= start and pos <= end:
-        return p
-    else:
-        return min(p, p*(float(1/pow((pos-end),.1))-1))
-
 class Model:
     def __init__(self):
         self.stats = dict()
@@ -89,6 +73,13 @@ class Model:
         self.typ2indx = dict()
         self.last_emis = ""
 
+    # Based on HMM concept, at each given state (VP), and with respect to enumerated
+    # named entites that should appear in the story, probabilisitically sample states
+    # until a suitable sentence is found in that states list of emissions.
+    # If given the end flag, will generate an end state as soon as it finds one.
+    # If the current state only transitions to an end state, it will return the end state
+    # If at the current state there is no next state that fulfills the named entity requirements
+    # at this stage, then raise an error indicating a dead end
     def genSentence(self, curr_line, endFlag):
         count = 0
         while True:
@@ -103,15 +94,11 @@ class Model:
                 if len(possibleStates) == 0:
                     return self.ne_emit_check(END)
                 shuffle(possibleStates)
-                #print(possibleStates)
                 for state in possibleStates:
-                    #print(state)
                     emissions = self.states[state].emits
                     shuffle(emissions)
                     emissions = sorted(emissions, key=lambda x: self.dist_from_needed_ne_emits(x))
-                    #print(len(emissions))
                     for e in emissions:
-                        #print(len(e))
                         fit = self.good_fit(e, curr_line)
                         if fit:
                             #print(fit)
@@ -131,6 +118,8 @@ class Model:
                 else:
                     raise e
 
+    # Each time step has a number of named entities (by type) that need to be emitted.
+    # This function calculates how close a candidate emission is to fulfilling that need
     def dist_from_needed_ne_emits(self, emis):
         typs = []
         nes_needed = zeros((len(self.ne_by_typ),), dtype="int32")
@@ -146,6 +135,8 @@ class Model:
 
         return numpy.linalg.norm(self.nes_left-nes_needed)
 
+    # For a given time step, calculate how many named entities (by type) need to be emitted
+    # Taking into account that some named entities will not appear before/after a certain line
     def calc_nes_left_at_step(self, curr_line):
         S,E = 2,3
         self.nes_left = zeros((len(self.ne_by_typ)),dtype="int32")
@@ -159,15 +150,7 @@ class Model:
                     if ne[0] > 0:
                         self.nes_left[self.typ2indx[typ]] += 1
 
-    def calc_nes_left(self):
-        self.nes_left = zeros((len(self.ne_by_typ)),dtype="int32")
-        self.typ2indx = dict()
-        for i,typ in enumerate(list(self.ne_by_typ.keys())):
-            self.typ2indx[typ] = i
-            for ne in self.ne_by_typ[typ]:
-                if ne[0] > 0:
-                    self.nes_left[self.typ2indx[typ]] += 1
-
+    # Checks to make sure enough emissions have occured, if not raises an error
     def ne_emit_check(self, END):
         for typ in self.ne_by_typ:
             for ne in self.ne_by_typ[typ]:
@@ -175,14 +158,19 @@ class Model:
                     raise ValueError("End reached before all NEs could be utilized")
         return END
 
+    # Returns an emission with masked named entities filled in with "real" (filler) named entities
+    # returns False if the emission requires too many named entities (for a given type)
     def good_fit(self, emis, curr_line):
+        # Check to make sure not to emit the same sentence twice, in case a state can loop to itself
         if self.last_emis == emis:
             return False
         original_emis = emis
         S,E = 2,3
+        # Sort each list of enumerated named entities by how many occurances they still require
         for typ in self.ne_by_typ:
             self.ne_by_typ[typ] = sorted(self.ne_by_typ[typ], reverse=True)
 
+        # Split all masked named entity tags, so they can be "filled in" by enumerated NEs
         params = []
         for token in emis.split(" "):
             if "<" in token:
@@ -191,59 +179,87 @@ class Model:
         chosen = []
         for p in params:
             typ = re.sub("[0-9]", "", p)
+            # If the sentence requires a named entity that we have not enumerated,
+            # return False, since all enumerations are done at the start
             if not typ in self.ne_by_typ:
                 return False
+            # If named entities of this type of already been used up by this sentence,
+            # and the sentence requires more, then return False, it can't be satisfied
             if len(self.ne_by_typ[typ]) == 0:
                 return False
             c = None
+            # For each enumerated named entity
             for i in range(len(self.ne_by_typ[typ])):
+                # Calulate the lines where it will min/max appear on
                 s_lim = floor(self.ne_by_typ[typ][i][S]*self.intd_length)
                 e_lim = ceil(self.ne_by_typ[typ][i][E]*self.intd_length)
+                # If the current line is between these limits (inclusive)
+                # then this named entity can fulfill a parameter of the sentence
                 if curr_line >= s_lim and curr_line <= e_lim:
                     c = self.ne_by_typ[typ].pop(i)
                     break
+            # If there are no named entities that can fulfill this parameter at this
+            # time step, then this sentence can't be fulfilled, return False
             if c == None:
                 return False
+            # Otherwise chose this enumereated named entity to fulfil this parameter
             chosen.append((p, c))
 
+        # At this point, all parameters of the sentence have been fulfilled
         for c in chosen:
+            # Update the sentence, filling in the masked entity with an enumerated one
             typ = re.sub("[0-9]", "", c[0])
             updated_ne = (c[1][0]-1, c[1][1], c[1][2], c[1][3])
             self.ne_by_typ[typ].append(updated_ne)
-            emis = emis.replace(c[0], c[1][1])
+            emis = emis.replace("<" + c[0] + ">", c[1][1])
 
-        self.calc_nes_left()
-
+        # Update the last emission (masked version)
         self.last_emis = original_emis
 
         return emis
-            
+
+    # With a given intended length, enumerate which named entities will
+    # appear in the story, how frequently (relative number of lines) and
+    # between what limits
     def enumerate_nes(self, intd_length):
         self.intd_length = intd_length
-        cat = int(intd_length / 5)
+        # Named entity statistics are calculated in 10 categories,
+        # The number of lines / 5 = category, with a max category of 9
+        cat = min(int(intd_length / 5), 9)
         enum_dict = dict()
+        # For each named entity type that has appeared in this category
         for typ in self.ne_stats[cat]:
+            # get relavent statistics
             prob,data = self.ne_stats[cat][typ]
+            # Produce a random betwee, 0 and 1
             r = random()
             n = 0
+            # Randomly sample from a distribution of number of entities of
+            # this type, normalized to have a probability between 0 and 1
             while n < len(prob)-1:
                 if r <= prob[n]:
                     break
                 r -= prob[n]
                 n += 1
+            # If an amount of named entities are chosen more than 0
             if n > 0:
+                # Store their stats, will enumerate their names below
                 enums = data[0:n]
                 enum_dict[typ] = enums
 
+        # For each type that has at least one enumerated named entity
         for typ in enum_dict:
             self.ne_by_typ[typ] = list()
             for i,ne in enumerate(enum_dict[typ]):
                 # Number of lines this NE should appear
                 num_lines = round(ne[0] * intd_length, 1)
-                self.ne_by_typ[typ].append((num_lines, typ + "|ENUM|" + str(i), ne[1], ne[2]))
+                # Randomly pick a name out of this category of NEs
+                # <I'm doing this in lieu of a "name generator" or generic tags>
+                r = int(round(random() * len(self.ne_names[typ])))
+                name = self.ne_names[typ].pop(r)
+                self.ne_by_typ[typ].append((num_lines, "<" + name + ">", ne[1], ne[2]))
 
-        self.calc_nes_left()
-
+    # Load stats file for doc length
     def loadStats(self, file_path):
         with open(file_path, 'r') as sfile:
             for line in sfile:
@@ -253,6 +269,7 @@ class Model:
                 except ValueError:
                     self.stats[tmp[0]] = tmp[1]
 
+    # Load named entity stats
     def loadNEStats(self, file_path):
         CAT,TCOUNT,TYP,MAXLEN,PROB,DATA = 0,1,2,3,4,5
         STATE = CAT
@@ -295,12 +312,14 @@ class Model:
                     else:
                         STATE = CAT
                         cat,typ,maxlen,prob,data,count = None,None,None,None,None,None
-        
+
+    # Load list of names for each seen type
     def loadNENames(self, file_path):
         typ = file_path.split("/")[-1].split(".")[0]
         with open(file_path, 'r') as nfile:
             self.ne_names[typ] = [line.strip("\n") for line in nfile.readlines()]
-                    
+
+    # Print the model to file with document statistics
     def printToFile(self, base_dir):
         doc_mean = mean(self.docLength)
         doc_median = median(self.docLength)
@@ -326,6 +345,9 @@ class Model:
 
         print("Printed out", count, "verb files")
 
+    # Given a sentence and it's masked (for named entities) version,
+    # and line number within the original summary, incorporate the sentence
+    # into the model
     def parse(self, sent, masked, i, nlp):
         if '\t' in sent:
             if '@' in sent:
@@ -342,6 +364,7 @@ class Model:
             tokens = list(sent)
             s = -1
             e = -1
+            # Find all VPs
             for i in range(len(tokens)):
                 if (tokens[i].pos_ == "VERB" or
                     tokens[i].pos_ == "ADV" or
@@ -351,6 +374,7 @@ class Model:
                         s = i
                 else:
                     s = -1
+                # Found the root VP
                 if tokens[i] == root:
                     e = i
                     for j in range(i+1, len(tokens)):
@@ -360,6 +384,11 @@ class Model:
                             break
                     break;
             # end of: for i in range(len(tokens)):
+
+            # Start with "Unknown" VP, which will serve as an
+            # ignore tag. If we can't determine if this is a
+            # legit sentence, then throw it out. We have plenty
+            # of others in the corpus
             root_vp = "UNKNOWN"
             if s != -1 and e != -1 and s <= e:
                 root_vp = ""
@@ -367,6 +396,13 @@ class Model:
                     root_vp += " " + word.text
             root_vp = root_vp.strip()
 
+            # Seperate the first sentence of a summary into a seperate category
+            # so START only transitions to these specific sentences
+            if self.lastState == START:
+                root_vp = "|"+root_vp
+
+            # Record emission and next state occurances
+            # typical of bi-gram HMM
             if not root_vp in self.states:
                 self.states[root_vp] = State(root_vp)
             self.states[root_vp].addEmit(masked, i)
@@ -374,6 +410,8 @@ class Model:
             self.lastState = root_vp
         # end of: for sent in spacy_doc.sents:
 
+# State class used to keep track of bi-gram sentence level
+# states
 class State:
     def __init__(self, vp):
         self.verb_phrase = vp

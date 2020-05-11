@@ -18,20 +18,20 @@ def main():
     length = int(sys.argv[2])
     output_file = sys.argv[3]
 
-    #model = load_model(model_dir)
-    #model.enumerate_nes(length)
-
     print("Writing story with at least", length, "sentences")
 
-    otherbugcount = 0
+    # Generate a story, keeping track of number of lines currently at
+    # Relient on the model generating sentences until it reaches an end state
+    # If an early end state is reached, try again
+    # Will also try again if the model reports that it has reached a dead end state
     while True:
         try:
             model = load_model(model_dir)
             model.enumerate_nes(length)
-            count = 0
+            count = -1
             lastSentence = START
             story = ""
-            bugCount = 0
+            bCount = 0
 
             while True:
                 flag = count >= length-1
@@ -39,9 +39,8 @@ def main():
                 count += 1
                 if sen == END:
                     if count < length:
-                        #print("GOT HERE")
-                        bugCount += 1
-                        if bugCount > 10:
+                        bCount += 1
+                        if bCount > 10:
                             raise ValueError("Dead end detected on outer level")
                         count -= 1
                         story = ""
@@ -53,14 +52,9 @@ def main():
             # End while, story constructed
             break
         except ValueError as e:
-            #print("ah HA!")
-            #otherbugcount += 1
-            #if otherbugcount > 10:
-                #exit()
             continue
 
     print(story)
-    exit()
 
     with open(output_file, 'w') as ofile:
         print(story, file=ofile)

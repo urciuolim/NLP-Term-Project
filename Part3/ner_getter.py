@@ -42,6 +42,8 @@ def main():
         if count % 100 == 0 and count > 1:
             print(".", end="", flush=True)
 
+# Find all NEs in corpus, based on spaCy and nltk NER taggers as well as
+# names given from corpus
 def get_all_NEs(MovieID, summary, name_base, nlp):
     if type(summary) != list:
         summary = list(summary)
@@ -49,12 +51,14 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
     for line in summary:
         text += line + " "
 
+    # Use nltk to grab all named entities
     nltk_ne = []
     for sent in nltk.sent_tokenize(text[:-1]):
         for chunk in ne_chunk(pos_tag(word_tokenize(sent))):
             if hasattr(chunk, 'label'):
                 nltk_ne.append(('nltk', chunk.label(), (' '.join(c[0] for c in chunk))))
-    
+
+    # Now try with spaCy
     doc = nlp(text[:-1])
     spacy_ne = []
     for ent in doc.ents:
@@ -66,12 +70,17 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
     NEs = dict()
     Nums = dict()
 
+    # Read in all named entities from movie corpus.
+    # These are treated like absolute truths and will not be
+    # changed by what spacy/nltk finds
     if MovieID in name_base:
         for name in name_base[MovieID]:
             if name == "":
                 continue
             NEs[name] = "GIVENPERSON"
 
+    # Match all NEs found by nltk, changing categories to match spaCy
+    # and record the type found (if applicable)
     for nne in nltk_ne:
         n_match = name_match(nne[2], NEs.keys())
         typ = nne[1]
@@ -89,6 +98,7 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
             for n in n_match:
                 NEs[n] += "_" + typ
 
+    # Do the same for spaCy. Keep track of numbers seperately
     for sne in spacy_ne:
         if sne[1] == "ORDINAL" or sne[1] == "CARDINAL" or sne[1] == "DATE" or sne[1] == "TIME":
             parse_nums(sne, Nums)
@@ -118,6 +128,9 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
                     
     final_list = []
     final_num_list = []
+    # Compile a final list of NEs, attempting to reconcile
+    # NEs that have been assigned multiple types
+    # (since neither of the NE taggers are perfect)
     for ne in NEs:
         n_match = name_match(ne, NEs.keys())
         if n_match:
@@ -129,6 +142,7 @@ def get_all_NEs(MovieID, summary, name_base, nlp):
 
     return final_list, final_num_list
 
+# Record the number, but change certain dates to ages
 def parse_nums(num_tup, Nums):
     typ = num_tup[1]
     if typ == "DATE":
@@ -138,6 +152,9 @@ def parse_nums(num_tup, Nums):
             return
     Nums[num_tup[2]] = typ
 
+# During matching process, each named entity type is "voted on" by the tagger
+# that finds an instance of it. Pick type that is most voted upon, making a combined
+# type for ties
 def reconcile_votes(name_tup):
     old_votes = name_tup[0].split("_")
     if "GIVENPERSON" in old_votes:
@@ -155,6 +172,10 @@ def reconcile_votes(name_tup):
         typ += "_" + v
     return (typ[1:], name_tup[1])
 
+# Match all parts of a name to all parts of known named entities
+# Will -1 in case of a miss
+#      empty list in case of strict ambiguous
+#      and a list with a name(s) in it if hits occur
 def name_match(qname, name_list):
     AMBIGUOUS = -2
     NONE = -1
@@ -186,6 +207,7 @@ def name_match(qname, name_list):
         match_return.append(list(name_list)[m])
     return match_return     
 
+# Load name base from corpus
 def load_name_base(file_path):
     name_base = dict()
     with open(file_path, 'r') as name_file:
@@ -202,6 +224,7 @@ def load_name_base(file_path):
 
     return name_base
 
+# Replace military prefixes which mess up NER libraries (plus st.)
 def replace_mil_prefixes(word):
     word = word.replace("Pvt.", "PVT")
     word = word.replace("Pfc.", "PFC")
